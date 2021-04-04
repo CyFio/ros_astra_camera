@@ -1,10 +1,24 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.5)
 project(astra_camera)
 
-find_package(catkin REQUIRED camera_info_manager dynamic_reconfigure image_transport nodelet sensor_msgs roscpp message_generation)
+# Default to C++14
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 14)
+endif()
 
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra)
+  add_compile_options(-Wno-deprecated)
+endif()
+
+# find_package(catkin REQUIRED camera_info_manager dynamic_reconfigure image_transport nodelet sensor_msgs roscpp message_generation)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+find_package(rmw_implementation_cmake REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system thread)
-
+find_package(rosidl_default_generators REQUIRED)  # use to generate custom srv and msg
 find_package(libuvc REQUIRED)
 
 #MACHINE = $(shell uname -m)
@@ -35,42 +49,41 @@ ENDIF ()
 message(STATUS "ORRBEC : ${HOST_PLATFORM}")
 message(STATUS "libuvc ${libuvc_VERSION_MAJOR}.${libuvc_VERSION_MINOR}.${libuvc_VERSION_PATCH}")
 
-generate_dynamic_reconfigure_options(cfg/Astra.cfg cfg/UVCCamera.cfg)
+# generate_dynamic_reconfigure_options(cfg/Astra.cfg cfg/UVCCamera.cfg)
 
-add_service_files(
-  FILES
-  GetSerial.srv
-  GetDeviceType.srv
-  GetIRGain.srv
-  GetCameraInfo.srv
-  GetUVCExposure.srv
-  GetIRExposure.srv
-  GetUVCGain.srv
-  GetUVCWhiteBalance.srv
-  SetUVCWhiteBalance.srv
-  SetUVCGain.srv
-  SetIRExposure.srv
-  SetIRGain.srv
-  SetIRFlood.srv
-  SetLaser.srv
-  SetLDP.srv
-  SetUVCExposure.srv
-  ResetIRGain.srv
-  ResetIRExposure.srv
-  SwitchIRCamera.srv
+set(ros_astra_SRV
+  srv/GetSerial.srv
+  srv/GetDeviceType.srv
+  srv/GetIRGain.srv
+  srv/GetCameraInfo.srv
+  srv/GetUVCExposure.srv
+  srv/GetIRExposure.srv
+  srv/GetUVCGain.srv
+  srv/GetUVCWhiteBalance.srv
+  srv/SetUVCWhiteBalance.srv
+  srv/SetUVCGain.srv
+  srv/SetIRExposure.srv
+  srv/SetIRGain.srv
+  srv/SetIRFlood.srv
+  srv/SetLaser.srv
+  srv/SetLDP.srv
+  srv/SetUVCExposure.srv
+  srv/ResetIRGain.srv
+  srv/ResetIRExposure.srv
+  srv/SwitchIRCamera.srv
 )
 
-generate_messages(
-  DEPENDENCIES
-  std_msgs sensor_msgs
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  ${ros_astra_SRV}
 )
 
-catkin_package(
-  INCLUDE_DIRS include
-  LIBRARIES astra_wrapper
-  CATKIN_DEPENDS camera_info_manager dynamic_reconfigure image_transport nodelet sensor_msgs roscpp message_runtime
-  #DEPENDS libastra
-)
+# catkin_package(
+#   INCLUDE_DIRS include
+#   LIBRARIES astra_wrapper
+#   CATKIN_DEPENDS camera_info_manager dynamic_reconfigure image_transport nodelet sensor_msgs roscpp message_runtime
+#   #DEPENDS libastra
+# )
 
 add_definitions(-Dlibuvc_VERSION_MAJOR=${libuvc_VERSION_MAJOR})
 add_definitions(-Dlibuvc_VERSION_MINOR=${libuvc_VERSION_MINOR})
@@ -193,3 +206,5 @@ install(TARGETS camera_node libuvc_camera_nodelet
         LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
         RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
+
+ament_package()
