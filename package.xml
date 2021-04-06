@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<package>
+<package format="3">
   <name>astra_camera</name>
   <version>0.3.0</version>
   <description>Drivers for Orbbec Astra Devices. </description>
@@ -8,6 +8,7 @@
   <maintainer email="nan@orbbec3d.com">Orbbec3D</maintainer>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_cmake</buildtool_depend>
 
   <depend>camera_info_manager</depend>
   <depend>libudev-dev</depend>
