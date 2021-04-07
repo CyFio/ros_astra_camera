@@ -2,21 +2,23 @@
 
 #include <libuvc/libuvc.h>
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <image_transport/image_transport.h>
 #include <image_transport/camera_publisher.h>
-#include <dynamic_reconfigure/server.h>
+// #include <dynamic_reconfigure/server.h>
 #include <camera_info_manager/camera_info_manager.h>
-#include <boost/thread/mutex.hpp>
-#include <sensor_msgs/CameraInfo.h>
-#include <astra_camera/GetUVCExposure.h>
-#include <astra_camera/SetUVCExposure.h>
-#include <astra_camera/GetUVCGain.h>
-#include <astra_camera/SetUVCGain.h>
-#include <astra_camera/GetUVCWhiteBalance.h>
-#include <astra_camera/SetUVCWhiteBalance.h>
+#include <boost/thread/recursive_mutex.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <astra_camera/astra_device_type.h>
-#include <astra_camera/UVCCameraConfig.h>
+#include "astra_camera/srv/get_camera_info.hpp"
+#include "astra_camera/srv/get_device_type.hpp"
+#include <astra_camera/srv/get_uvc_exposure.hpp>
+#include <astra_camera/srv/set_uvc_exposure.hpp>
+#include <astra_camera/srv/get_uvc_gain.hpp>
+#include <astra_camera/srv/set_uvc_gain.hpp>
+#include <astra_camera/srv/get_uvc_white_balance.hpp>
+#include <astra_camera/srv/set_uvc_white_balance.hpp>
+// #include <astra_camera/uvc_camera_config.hpp>
 
 #include <string>
 
@@ -24,7 +26,7 @@ namespace libuvc_camera {
 
 class CameraDriver {
 public:
-  CameraDriver(ros::NodeHandle nh, ros::NodeHandle priv_nh);
+  CameraDriver(rclcpp::Node::SharedPtr& nh);
   ~CameraDriver();
 
   bool Start();
@@ -42,11 +44,11 @@ private:
   static const int kReconfigureStop = 1; // Need to stop the stream before changing this setting
   static const int kReconfigureRunning = 0; // We can change this setting without stopping the stream
 
-  void OpenCamera(UVCCameraConfig &new_config);
+  // void OpenCamera(UVCCameraConfig &new_config);
   void CloseCamera();
 
   // Accept a reconfigure request from a client
-  void ReconfigureCallback(UVCCameraConfig &config, uint32_t level);
+  // void ReconfigureCallback(UVCCameraConfig &config, uint32_t level);
   enum uvc_frame_format GetVideoMode(std::string vmode);
   // Accept changes in values of automatically updated controls
   void AutoControlsCallback(enum uvc_status_class status_class,
@@ -63,14 +65,14 @@ private:
   // Accept a new image frame from the camera
   void ImageCallback(uvc_frame_t *frame);
   static void ImageCallbackAdapter(uvc_frame_t *frame, void *ptr);
-  bool getUVCExposureCb(astra_camera::GetUVCExposureRequest& req, astra_camera::GetUVCExposureResponse& res);
-  bool setUVCExposureCb(astra_camera::SetUVCExposureRequest& req, astra_camera::SetUVCExposureResponse& res);
-  bool getUVCGainCb(astra_camera::GetUVCGainRequest& req, astra_camera::GetUVCGainResponse& res);
-  bool setUVCGainCb(astra_camera::SetUVCGainRequest& req, astra_camera::SetUVCGainResponse& res);
-  bool getUVCWhiteBalanceCb(astra_camera::GetUVCWhiteBalanceRequest& req, astra_camera::GetUVCWhiteBalanceResponse& res);
-  bool setUVCWhiteBalanceCb(astra_camera::SetUVCWhiteBalanceRequest& req, astra_camera::SetUVCWhiteBalanceResponse& res);
+  bool getUVCExposureCb(astra_camera::srv::GetUVCExposure::Request::SharedPtr req, astra_camera::srv::GetUVCExposure::Response::SharedPtr res);
+  bool setUVCExposureCb(astra_camera::srv::SetUVCExposure::Request::SharedPtr req, astra_camera::srv::SetUVCExposure::Response::SharedPtr res);
+  bool getUVCGainCb(astra_camera::srv::GetUVCGain::Request::SharedPtr req, astra_camera::srv::GetUVCGain::Response::SharedPtr res);
+  bool setUVCGainCb(astra_camera::srv::SetUVCGain::Request::SharedPtr req, astra_camera::srv::SetUVCGain::Response::SharedPtr res);
+  bool getUVCWhiteBalanceCb(astra_camera::srv::GetUVCWhiteBalance::Request::SharedPtr req, astra_camera::srv::GetUVCWhiteBalance::Response::SharedPtr res);
+  bool setUVCWhiteBalanceCb(astra_camera::srv::SetUVCWhiteBalance::Request::SharedPtr req, astra_camera::srv::SetUVCWhiteBalance::Response::SharedPtr res);
 
-  ros::NodeHandle nh_, priv_nh_;
+  rclcpp::Node::SharedPtr nh_, priv_nh_;
 
   State state_;
   boost::recursive_mutex mutex_;
@@ -83,31 +85,31 @@ private:
   image_transport::ImageTransport it_;
   image_transport::CameraPublisher cam_pub_;
 
-  dynamic_reconfigure::Server<UVCCameraConfig> config_server_;
-  UVCCameraConfig config_;
-  bool config_changed_;
+  // dynamic_reconfigure::Server<UVCCameraConfig> config_server_;
+  // UVCCameraConfig config_;
+  // bool config_changed_;
 
   camera_info_manager::CameraInfoManager cinfo_manager_;
   std::string ns;
   std::string ns_no_slash;
 
-  ros::ServiceServer get_uvc_exposure_server;
-  ros::ServiceServer set_uvc_exposure_server;
-  ros::ServiceServer get_uvc_gain_server;
-  ros::ServiceServer set_uvc_gain_server;
-  ros::ServiceServer get_uvc_white_balance_server;
-  ros::ServiceServer set_uvc_white_balance_server;
+  rclcpp::Service<astra_camera::srv::GetUVCExposure>::SharedPtr get_uvc_exposure_server;
+  rclcpp::Service<astra_camera::srv::SetUVCExposure>::SharedPtr set_uvc_exposure_server;
+  rclcpp::Service<astra_camera::srv::GetUVCGain>::SharedPtr get_uvc_gain_server;
+  rclcpp::Service<astra_camera::srv::SetUVCGain>::SharedPtr set_uvc_gain_server;
+  rclcpp::Service<astra_camera::srv::GetUVCWhiteBalance>::SharedPtr get_uvc_white_balance_server;
+  rclcpp::Service<astra_camera::srv::SetUVCWhiteBalance>::SharedPtr set_uvc_white_balance_server;
 
-  ros::ServiceClient device_type_client;
-  ros::ServiceClient camera_info_client;
+  rclcpp::Client<astra_camera::srv::GetDeviceType>::SharedPtr device_type_client;
+  rclcpp::Client<astra_camera::srv::GetCameraInfo>::SharedPtr camera_info_client;
 
   bool device_type_init_;
   bool camera_info_init_;
   std::string device_type_;
-  sensor_msgs::CameraInfo camera_info_;
+  sensor_msgs::msg::CameraInfo camera_info_;
   int uvc_flip_;
   OB_DEVICE_NO device_type_no_;
   bool camera_info_valid_;
 };
 
-};
+}

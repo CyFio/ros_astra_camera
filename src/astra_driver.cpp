@@ -38,8 +38,10 @@
 #include <stdlib.h>  
 #include <stdio.h>  
 #include <sys/shm.h>  
-#include <sensor_msgs/image_encodings.h>
-#include <sensor_msgs/distortion_models.h>
+#include <rcutils/logging_macros.h>
+#include <sensor_msgs/image_encodings.hpp>
+#include <sensor_msgs/distortion_models.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/thread/thread.hpp>
@@ -48,11 +50,10 @@
 namespace astra_wrapper
 {
 
-AstraDriver::AstraDriver(ros::NodeHandle& n, ros::NodeHandle& pnh) :
+AstraDriver::AstraDriver(rclcpp::Node::SharedPtr& n) :
     nh_(n),
-    pnh_(pnh),
     device_manager_(AstraDeviceManager::getSingelton()),
-    config_init_(false),
+    // config_init_(false),
     data_skip_ir_counter_(0),
     data_skip_color_counter_(0),
     data_skip_depth_counter_ (0),
@@ -62,6 +63,7 @@ AstraDriver::AstraDriver(ros::NodeHandle& n, ros::NodeHandle& pnh) :
     depth_raw_subscribers_(false),
     uvc_flip_(0)
 {
+  pnh_ = nh_->create_sub_node(nh_->get_name());
 
   genVideoModeTableMap();
 
@@ -89,19 +91,19 @@ AstraDriver::AstraDriver(ros::NodeHandle& n, ros::NodeHandle& pnh) :
 		{
 			if( (shmid = shmget((key_t)0401, 1, 0666|IPC_CREAT)) == -1 )   
 			{ 
-				ROS_ERROR("Create Share Memory Error:%s", strerror(errno));
+				RCUTILS_LOG_ERROR("Create Share Memory Error:%s", strerror(errno));
 			}
 			shm = (char *)shmat(shmid, 0, 0);  
 			*shm = 1;
 			initDevice();
-			ROS_INFO("*********** device_id %s already open device************************ ", device_id_.c_str());
+			RCUTILS_LOG_INFO("*********** device_id %s already open device************************ ", device_id_.c_str());
 			*shm = 2;
 		}
 		else 	
 		{	
 			if( (shmid = shmget((key_t)0401, 1, 0666|IPC_CREAT)) == -1 )   
 			{ 
-			  	ROS_ERROR("Create Share Memory Error:%s", strerror(errno));
+			  	RCUTILS_LOG_ERROR("Create Share Memory Error:%s", strerror(errno));
 			}
 			shm = (char *)shmat(shmid, 0, 0);
 			while( *shm!=bootOrder)
@@ -110,25 +112,25 @@ AstraDriver::AstraDriver(ros::NodeHandle& n, ros::NodeHandle& pnh) :
 			}
 
 			 initDevice();
-			 ROS_INFO("*********** device_id %s already open device************************ ", device_id_.c_str());
+			 RCUTILS_LOG_INFO("*********** device_id %s already open device************************ ", device_id_.c_str());
 			*shm = (bootOrder+1);
 		}
 		if(  bootOrder==devnums )
 		{
 			if(shmdt(shm) == -1)  
 			{  
-				ROS_ERROR("shmdt failed\n");  
+				RCUTILS_LOG_ERROR("shmdt failed\n");  
 			} 
 			if(shmctl(shmid, IPC_RMID, 0) == -1)  
 			{  
-				ROS_ERROR("shmctl(IPC_RMID) failed\n");  
+				RCUTILS_LOG_ERROR("shmctl(IPC_RMID) failed\n");  
 			}
 		 }
 		 else
 		 {
 		 	if(shmdt(shm) == -1)  
 			{  
-				ROS_ERROR("shmdt failed\n");  
+				RCUTILS_LOG_ERROR("shmdt failed\n");  
 			} 
 		 }
 	 }
@@ -141,15 +143,15 @@ AstraDriver::AstraDriver(ros::NodeHandle& n, ros::NodeHandle& pnh) :
 
 #endif
   // Initialize dynamic reconfigure
-  reconfigure_server_.reset(new ReconfigureServer(pnh_));
-  reconfigure_server_->setCallback(boost::bind(&AstraDriver::configCb, this, _1, _2));
+  // reconfigure_server_.reset(new ReconfigureServer(pnh_));
+  // reconfigure_server_->setCallback(boost::bind(&AstraDriver::configCb, this, _1, _2));
 
-  while (!config_init_)
-  {
-    ROS_DEBUG("Waiting for dynamic reconfigure configuration.");
-    boost::this_thread::sleep(boost::posix_time::milliseconds(100));
-  }
-  ROS_DEBUG("Dynamic reconfigure configuration received.");
+  // while (!config_init_)
+  // {
+  //   RCUTILS_LOG_DEBUG("Waiting for dynamic reconfigure configuration.");
+  //   boost::this_thread::sleep(boost::posix_time::milliseconds(100));
+  // }
+  // RCUTILS_LOG_DEBUG("Dynamic reconfigure configuration received.");
 
   advertiseROSTopics();
 }
@@ -162,15 +164,20 @@ void AstraDriver::advertiseROSTopics()
 {
 
   // Allow remapping namespaces rgb, ir, depth, depth_registered
-  ros::NodeHandle color_nh(nh_, "rgb");
+  // ros::NodeHandle color_nh(nh_, "rgb");
+  auto color_nh = nh_->create_sub_node("rgb");
   image_transport::ImageTransport color_it(color_nh);
-  ros::NodeHandle ir_nh(nh_, "ir");
+  // ros::NodeHandle ir_nh(nh_, "ir");
+  auto ir_nh = nh_->create_sub_node("ir");
   image_transport::ImageTransport ir_it(ir_nh);
-  ros::NodeHandle depth_nh(nh_, "depth");
+  // ros::NodeHandle depth_nh(nh_, "depth");
+  auto depth_nh = nh_->create_sub_node("depth")
   image_transport::ImageTransport depth_it(depth_nh);
-  ros::NodeHandle depth_raw_nh(nh_, "depth");
+  // ros::NodeHandle depth_raw_nh(nh_, "depth");
+  auto depth_raw_nh = nh_->create_sub_node("depth_raw");
   image_transport::ImageTransport depth_raw_it(depth_raw_nh);
-  ros::NodeHandle projector_nh(nh_, "projector");
+  // ros::NodeHandle projector_nh(nh_, "projector");
+  auto projector_nh = nh_->create_sub_node("projector");
   // Advertise all published topics
 
   // Prevent connection callbacks from executing until we've set all the publishers. Otherwise
@@ -180,28 +187,35 @@ void AstraDriver::advertiseROSTopics()
   boost::lock_guard<boost::mutex> lock(connect_mutex_);
 
   // Asus Xtion PRO does not have an RGB camera
-  //ROS_WARN("-------------has color sensor is %d----------- ", device_->hasColorSensor());
+  //RCUTILS_LOG_WARN("-------------has color sensor is %d----------- ", device_->hasColorSensor());
   if (device_->hasColorSensor())
   {
-    image_transport::SubscriberStatusCallback itssc = boost::bind(&AstraDriver::imageConnectCb, this);
-    ros::SubscriberStatusCallback rssc = boost::bind(&AstraDriver::imageConnectCb, this);
-    pub_color_ = color_it.advertiseCamera("image", 1, itssc, itssc, rssc, rssc);
+    // image_transport::SubscriberStatusCallback itssc = boost::bind(&AstraDriver::imageConnectCb, this);
+    // ros::SubscriberStatusCallback rssc = boost::bind(&AstraDriver::imageConnectCb, this);
+    // pub_color_ = color_it.advertiseCamera("image", 1, itssc, itssc, rssc, rssc);
+    pub_color_ = color_it.advertiseCamera("image", 1);
+    // imageConnectCb();
+
   }
 
   if (device_->hasIRSensor())
   {
-    image_transport::SubscriberStatusCallback itssc = boost::bind(&AstraDriver::imageConnectCb, this);
-    ros::SubscriberStatusCallback rssc = boost::bind(&AstraDriver::imageConnectCb, this);
-    pub_ir_ = ir_it.advertiseCamera("image", 1, itssc, itssc, rssc, rssc);
+    // image_transport::SubscriberStatusCallback itssc = boost::bind(&AstraDriver::imageConnectCb, this);
+    // ros::SubscriberStatusCallback rssc = boost::bind(&AstraDriver::imageConnectCb, this);
+    // pub_ir_ = ir_it.advertiseCamera("image", 1, itssc, itssc, rssc, rssc);
+    pub_ir_ = ir_it.advertiseCamera("image", 1);
   }
 
   if (device_->hasDepthSensor())
   {
-    image_transport::SubscriberStatusCallback itssc = boost::bind(&AstraDriver::depthConnectCb, this);
-    ros::SubscriberStatusCallback rssc = boost::bind(&AstraDriver::depthConnectCb, this);
-    pub_depth_raw_ = depth_it.advertiseCamera("image_raw", 1, itssc, itssc, rssc, rssc);
-    pub_depth_ = depth_raw_it.advertiseCamera("image", 1, itssc, itssc, rssc, rssc);
-    pub_projector_info_ = projector_nh.advertise<sensor_msgs::CameraInfo>("camera_info", 1, rssc, rssc);
+    // image_transport::SubscriberStatusCallback itssc = boost::bind(&AstraDriver::depthConnectCb, this);
+    // ros::SubscriberStatusCallback rssc = boost::bind(&AstraDriver::depthConnectCb, this);
+    // pub_depth_raw_ = depth_it.advertiseCamera("image_raw", 1, itssc, itssc, rssc, rssc);
+    // pub_depth_ = depth_raw_it.advertiseCamera("image", 1, itssc, itssc, rssc, rssc);
+    // pub_projector_info_ = projector_nh.advertise<sensor_msgs::CameraInfo>("camera_info", 1, rssc, rssc);
+    pub_depth_raw_ = depth_it.advertiseCamera("image_raw", 1);
+    pub_depth_ = depth_raw_it.advertiseCamera("image", 1);
+    pub_projector_info_ = projector_nh->create_publisher<sensor_msgs::msg::CameraInfo>("camera_info", 1);
   }
 
   ////////// CAMERA INFO MANAGER
@@ -242,183 +256,183 @@ void AstraDriver::advertiseROSTopics()
   }
 }
 
-bool AstraDriver::getSerialCb(astra_camera::GetSerialRequest& req, astra_camera::GetSerialResponse& res)
+bool AstraDriver::getSerialCb(astra_camera::srv::GetSerial::Request::SharedPtr req, astra_camera::srv::GetSerial::Response::SharedPtr res)
 {
-  res.serial = device_manager_->getSerial(device_->getUri());
+  res->serial = device_manager_->getSerial(device_->getUri());
   return true;
 }
 
-bool AstraDriver::getDeviceTypeCb(astra_camera::GetDeviceTypeRequest& req, astra_camera::GetDeviceTypeResponse& res)
+bool AstraDriver::getDeviceTypeCb(astra_camera::srv::GetDeviceType::Request::SharedPtr req, astra_camera::srv::GetDeviceType::Response::SharedPtr res)
 {
-  res.device_type = std::string(device_->getDeviceType());
+  res->device_type = std::string(device_->getDeviceType());
   return true;
 }
 
-bool AstraDriver::getIRGainCb(astra_camera::GetIRGainRequest& req, astra_camera::GetIRGainResponse& res)
+bool AstraDriver::getIRGainCb(astra_camera::srv::GetIRGain::Request::SharedPtr req, astra_camera::srv::GetIRGain::Response::SharedPtr res)
 {
-  res.gain = device_->getIRGain();
+  res->gain = device_->getIRGain();
   return true;
 }
 
-bool AstraDriver::setIRGainCb(astra_camera::SetIRGainRequest& req, astra_camera::SetIRGainResponse& res)
+bool AstraDriver::setIRGainCb(astra_camera::srv::SetIRGain::Request::SharedPtr req, astra_camera::srv::SetIRGain::Response::SharedPtr res)
 {
-  device_->setIRGain(req.gain);
+  device_->setIRGain(req->gain);
   return true;
 }
 
-bool AstraDriver::getIRExposureCb(astra_camera::GetIRExposureRequest& req, astra_camera::GetIRExposureResponse& res)
+bool AstraDriver::getIRExposureCb(astra_camera::srv::GetIRExposure::Request::SharedPtr req, astra_camera::srv::GetIRExposure::Response::SharedPtr res)
 {
-  res.exposure = device_->getIRExposure();
+  res->exposure = device_->getIRExposure();
   return true;
 }
 
-bool AstraDriver::setIRExposureCb(astra_camera::SetIRExposureRequest& req, astra_camera::SetIRExposureResponse& res)
+bool AstraDriver::setIRExposureCb(astra_camera::srv::SetIRExposure::Request::SharedPtr req, astra_camera::srv::SetIRExposure::Response::SharedPtr res)
 {
-  device_->setIRExposure(req.exposure);
+  device_->setIRExposure(req->exposure);
   return true;
 }
 
-bool AstraDriver::setLaserCb(astra_camera::SetLaserRequest& req, astra_camera::SetLaserResponse& res)
+bool AstraDriver::setLaserCb(astra_camera::srv::SetLaser::Request::SharedPtr req, astra_camera::srv::SetLaser::Response::SharedPtr res)
 {
-  device_->setLaser(req.enable);
+  device_->setLaser(req->enable);
   return true;
 }
 
-bool AstraDriver::setLDPCb(astra_camera::SetLDPRequest& req, astra_camera::SetLDPResponse& res)
+bool AstraDriver::setLDPCb(astra_camera::srv::SetLDP::Request::SharedPtr req, astra_camera::srv::SetLDP::Response::SharedPtr res)
 {
-  device_->setLDP(req.enable);
+  device_->setLDP(req->enable);
   return true;
 }
 
-bool AstraDriver::resetIRGainCb(astra_camera::ResetIRGainRequest& req, astra_camera::ResetIRGainResponse& res)
-{
+bool AstraDriver::resetIRGainCb(astra_camera::srv::ResetIRGain::Request::SharedPtr req, astra_camera::srv::ResetIRGain::Response::SharedPtr res)
   device_->setIRGain(0x8);
   return true;
 }
 
-bool AstraDriver::resetIRExposureCb(astra_camera::ResetIRExposureRequest& req, astra_camera::ResetIRExposureResponse& res)
+bool AstraDriver::resetIRExposureCb(astra_camera::srv::ResetIRExposure::Request::SharedPtr req, astra_camera::srv::ResetIRExposure::Response::SharedPtr res)
 {
   device_->setIRExposure(0x419);
   return true;
 }
 
-bool AstraDriver::getCameraInfoCb(astra_camera::GetCameraInfoRequest& req, astra_camera::GetCameraInfoResponse& res)
+bool AstraDriver::(astra_camera::srv::GetCameraInfo::Request::SharedPtr req, astra_camera::srv::GetCameraInfo::Response::SharedPtr res)
 {
-  res.info = convertAstraCameraInfo(device_->getCameraParams(), ros::Time::now());
+  
+  // res.info = convertAstraCameraInfo(device_->getCameraParams(), ros::Time::now());
   return true;
 }
 
-bool AstraDriver::setIRFloodCb(astra_camera::SetIRFloodRequest& req, astra_camera::SetIRFloodResponse& res)
+bool AstraDriver::setIRFloodCb(astra_camera::srv::SetIRFlood::Request::SharedPtr req, astra_camera::srv::SetIRFlood::Response::SharedPtr res)
 {
-  device_->setIRFlood(req.enable);
+  device_->setIRFlood(req->enable);
   return true;
 }
 
-bool AstraDriver::switchIRCameraCb(astra_camera::SwitchIRCameraRequest& req, astra_camera::SwitchIRCameraResponse& res)
+bool AstraDriver::switchIRCameraCb(astra_camera::srv::SwitchIRCamera::Request::SharedPtr req, astra_camera::srv::SwitchIRCamera::Response::SharedPtr res)
 {
-  if (req.camera == "left")
+  if (req->camera == "left")
     device_->switchIRCamera(0);
-  else if (req.camera == "right")
+  else if (req->camera == "right")
     device_->switchIRCamera(1);
   else
-    ROS_ERROR("Only support left/right");
+    RCUTILS_LOG_ERROR("Only support left/right");
   return true;
 }
 
-void AstraDriver::configCb(Config &config, uint32_t level)
-{
-  if (device_->getDeviceTypeNo() == OB_STEREO_S_NO)
-  {
-    if (config.depth_mode != 13 && config.depth_mode != 14)
-    {
-      config.depth_mode = 13;
-    }
-    if (config.ir_mode != 13 && config.ir_mode != 14 && config.ir_mode != 16)
-    {
-      config.ir_mode = 13;
-    }
-    device_->switchIRCamera(0);
-  }
-  else if (device_->getDeviceTypeNo() == OB_EMBEDDED_S_NO)
-  {
-    if (config.depth_mode != 13 && config.depth_mode != 17)
-    {
-      config.depth_mode = 13;
-    }
-    if (config.ir_mode != 13 && config.ir_mode != 17)
-    {
-      config.ir_mode = 13;
-    }
-    uvc_flip_ = 1;
-  }
-  else if (device_->getDeviceTypeNo() == OB_STEREO_S_U3_NO)
-  {
-    if (config.depth_mode != 13 && config.depth_mode != 14)
-    {
-      config.depth_mode = 13;
-    }
-    if (config.ir_mode != 13 && config.ir_mode != 14)
-    {
-      config.ir_mode = 13;
-    }
-    device_->switchIRCamera(0);
-  }
-  bool stream_reset = false;
+// void AstraDriver::configCb(Config &config, uint32_t level)
+// {
+//   if (device_->getDeviceTypeNo() == OB_STEREO_S_NO)
+//   {
+//     if (config.depth_mode != 13 && config.depth_mode != 14)
+//     {
+//       config.depth_mode = 13;
+//     }
+//     if (config.ir_mode != 13 && config.ir_mode != 14 && config.ir_mode != 16)
+//     {
+//       config.ir_mode = 13;
+//     }
+//     device_->switchIRCamera(0);
+//   }
+//   else if (device_->getDeviceTypeNo() == OB_EMBEDDED_S_NO)
+//   {
+//     if (config.depth_mode != 13 && config.depth_mode != 17)
+//     {
+//       config.depth_mode = 13;
+//     }
+//     if (config.ir_mode != 13 && config.ir_mode != 17)
+//     {
+//       config.ir_mode = 13;
+//     }
+//     uvc_flip_ = 1;
+//   }
+//   else if (device_->getDeviceTypeNo() == OB_STEREO_S_U3_NO)
+//   {
+//     if (config.depth_mode != 13 && config.depth_mode != 14)
+//     {
+//       config.depth_mode = 13;
+//     }
+//     if (config.ir_mode != 13 && config.ir_mode != 14)
+//     {
+//       config.ir_mode = 13;
+//     }
+//     device_->switchIRCamera(0);
+//   }
+//   bool stream_reset = false;
 
-  rgb_preferred_ = config.rgb_preferred;
+//   rgb_preferred_ = config.rgb_preferred;
 
-  if (config_init_ && old_config_.rgb_preferred != config.rgb_preferred)
-    imageConnectCb();
+//   if (config_init_ && old_config_.rgb_preferred != config.rgb_preferred)
+//     imageConnectCb();
 
-  depth_ir_offset_x_ = config.depth_ir_offset_x;
-  depth_ir_offset_y_ = config.depth_ir_offset_y;
-  z_offset_mm_ = config.z_offset_mm;
-  z_scaling_ = config.z_scaling;
+//   depth_ir_offset_x_ = config.depth_ir_offset_x;
+//   depth_ir_offset_y_ = config.depth_ir_offset_y;
+//   z_offset_mm_ = config.z_offset_mm;
+//   z_scaling_ = config.z_scaling;
 
-  ir_time_offset_ = ros::Duration(config.ir_time_offset);
-  color_time_offset_ = ros::Duration(config.color_time_offset);
-  depth_time_offset_ = ros::Duration(config.depth_time_offset);
+//   ir_time_offset_ = ros::Duration(config.ir_time_offset);
+//   color_time_offset_ = ros::Duration(config.color_time_offset);
+//   depth_time_offset_ = ros::Duration(config.depth_time_offset);
 
-  if (lookupVideoModeFromDynConfig(config.ir_mode, ir_video_mode_)<0)
-  {
-    ROS_ERROR("Undefined IR video mode received from dynamic reconfigure");
-    exit(-1);
-  }
+//   if (lookupVideoModeFromDynConfig(config.ir_mode, ir_video_mode_)<0)
+//   {
+//     RCUTILS_LOG_ERROR("Undefined IR video mode received from dynamic reconfigure");
+//     exit(-1);
+//   }
 
-  if (lookupVideoModeFromDynConfig(config.color_mode, color_video_mode_)<0)
-  {
-    ROS_ERROR("Undefined color video mode received from dynamic reconfigure");
-    exit(-1);
-  }
+//   if (lookupVideoModeFromDynConfig(config.color_mode, color_video_mode_)<0)
+//   {
+//     RCUTILS_LOG_ERROR("Undefined color video mode received from dynamic reconfigure");
+//     exit(-1);
+//   }
 
-  if (lookupVideoModeFromDynConfig(config.depth_mode, depth_video_mode_)<0)
-  {
-    ROS_ERROR("Undefined depth video mode received from dynamic reconfigure");
-    exit(-1);
-  }
+//   if (lookupVideoModeFromDynConfig(config.depth_mode, depth_video_mode_)<0)
+//   {
+//     RCUTILS_LOG_ERROR("Undefined depth video mode received from dynamic reconfigure");
+//     exit(-1);
+//   }
 
-  // assign pixel format
+//   // assign pixel format
 
-  ir_video_mode_.pixel_format_ = PIXEL_FORMAT_GRAY16;
-  color_video_mode_.pixel_format_ = PIXEL_FORMAT_RGB888;
-  depth_video_mode_.pixel_format_ = PIXEL_FORMAT_DEPTH_1_MM;
+//   ir_video_mode_.pixel_format_ = PIXEL_FORMAT_GRAY16;
+//   color_video_mode_.pixel_format_ = PIXEL_FORMAT_RGB888;
+//   depth_video_mode_.pixel_format_ = PIXEL_FORMAT_DEPTH_1_MM;
 
-  color_depth_synchronization_ = config.color_depth_synchronization;
-  depth_registration_ = config.depth_registration;
+//   color_depth_synchronization_ = config.color_depth_synchronization;
+//   depth_registration_ = config.depth_registration;
 
-  auto_exposure_ = config.auto_exposure;
-  auto_white_balance_ = config.auto_white_balance;
+//   auto_exposure_ = config.auto_exposure;
+//   auto_white_balance_ = config.auto_white_balance;
 
-  use_device_time_ = config.use_device_time;
+//   use_device_time_ = config.use_device_time;
 
-  data_skip_ = config.data_skip+1;
+//   data_skip_ = config.data_skip+1;
 
-  applyConfigToOpenNIDevice();
+//   applyConfigToOpenNIDevice();
 
-  config_init_ = true;
+//   config_init_ = true;
 
-  old_config_ = config;
-}
+//   old_config_ = config;
+// }
 
 void AstraDriver::setIRVideoMode(const AstraVideoMode& ir_video_mode)
 {
@@ -432,7 +446,7 @@ void AstraDriver::setIRVideoMode(const AstraVideoMode& ir_video_mode)
   }
   else
   {
-    ROS_ERROR_STREAM("Unsupported IR video mode - " << ir_video_mode);
+    RCUTILS_LOG_ERROR_STREAM("Unsupported IR video mode - " << ir_video_mode);
   }
 }
 void AstraDriver::setColorVideoMode(const AstraVideoMode& color_video_mode)
@@ -446,7 +460,7 @@ void AstraDriver::setColorVideoMode(const AstraVideoMode& color_video_mode)
   }
   else
   {
-    ROS_ERROR_STREAM("Unsupported color video mode - " << color_video_mode);
+    RCUTILS_LOG_ERROR_STREAM("Unsupported color video mode - " << color_video_mode);
   }
 }
 void AstraDriver::setDepthVideoMode(const AstraVideoMode& depth_video_mode)
@@ -460,7 +474,7 @@ void AstraDriver::setDepthVideoMode(const AstraVideoMode& depth_video_mode)
   }
   else
   {
-    ROS_ERROR_STREAM("Unsupported depth video mode - " << depth_video_mode);
+    RCUTILS_LOG_ERROR_STREAM("Unsupported depth video mode - " << depth_video_mode);
   }
 }
 
@@ -487,7 +501,7 @@ void AstraDriver::applyConfigToOpenNIDevice()
     }
     catch (const AstraException& exception)
     {
-      ROS_ERROR("Could not set image registration. Reason: %s", exception.what());
+      RCUTILS_LOG_ERROR("Could not set image registration. Reason: %s", exception.what());
     }
   }
 
@@ -498,7 +512,7 @@ void AstraDriver::applyConfigToOpenNIDevice()
   }
   catch (const AstraException& exception)
   {
-    ROS_ERROR("Could not set color depth synchronization. Reason: %s", exception.what());
+    RCUTILS_LOG_ERROR("Could not set color depth synchronization. Reason: %s", exception.what());
   }
 
   try
@@ -508,7 +522,7 @@ void AstraDriver::applyConfigToOpenNIDevice()
   }
   catch (const AstraException& exception)
   {
-    ROS_ERROR("Could not set auto exposure. Reason: %s", exception.what());
+    RCUTILS_LOG_ERROR("Could not set auto exposure. Reason: %s", exception.what());
   }
 
   try
@@ -518,7 +532,7 @@ void AstraDriver::applyConfigToOpenNIDevice()
   }
   catch (const AstraException& exception)
   {
-    ROS_ERROR("Could not set auto white balance. Reason: %s", exception.what());
+    RCUTILS_LOG_ERROR("Could not set auto white balance. Reason: %s", exception.what());
   }
 
   device_->setUseDeviceTimer(use_device_time_);
@@ -538,11 +552,11 @@ void AstraDriver::imageConnectCb()
   if (color_subscribers_ && (!ir_subscribers_ || rgb_preferred_))
   {
     if (ir_subscribers_)
-      ROS_ERROR("Cannot stream RGB and IR at the same time. Streaming RGB only.");
+      RCUTILS_LOG_ERROR("Cannot stream RGB and IR at the same time. Streaming RGB only.");
 
     if (ir_started)
     {
-      ROS_INFO("Stopping IR stream.");
+      RCUTILS_LOG_INFO("Stopping IR stream.");
       device_->stopIRStream();
     }
 
@@ -550,7 +564,7 @@ void AstraDriver::imageConnectCb()
     {
       device_->setColorFrameCallback(boost::bind(&AstraDriver::newColorFrameCallback, this, _1));
 
-      ROS_INFO("Starting color stream.");
+      RCUTILS_LOG_INFO("Starting color stream.");
       device_->startColorStream();
     }
   }
@@ -558,11 +572,11 @@ void AstraDriver::imageConnectCb()
   {
 
     if (color_subscribers_)
-      ROS_ERROR("Cannot stream RGB and IR at the same time. Streaming IR only.");
+      RCUTILS_LOG_ERROR("Cannot stream RGB and IR at the same time. Streaming IR only.");
 
     if (color_started)
     {
-      ROS_INFO("Stopping color stream.");
+      RCUTILS_LOG_INFO("Stopping color stream.");
       device_->stopColorStream();
     }
 
@@ -570,7 +584,7 @@ void AstraDriver::imageConnectCb()
     {
       device_->setIRFrameCallback(boost::bind(&AstraDriver::newIRFrameCallback, this, _1));
 
-      ROS_INFO("Starting IR stream.");
+      RCUTILS_LOG_INFO("Starting IR stream.");
       device_->startIRStream();
     }
   }
@@ -578,12 +592,12 @@ void AstraDriver::imageConnectCb()
   {
     if (color_started)
     {
-      ROS_INFO("Stopping color stream.");
+      RCUTILS_LOG_INFO("Stopping color stream.");
       device_->stopColorStream();
     }
     if (ir_started)
     {
-      ROS_INFO("Stopping IR stream.");
+      RCUTILS_LOG_INFO("Stopping IR stream.");
       device_->stopIRStream();
     }
   }
@@ -603,17 +617,17 @@ void AstraDriver::depthConnectCb()
   {
     device_->setDepthFrameCallback(boost::bind(&AstraDriver::newDepthFrameCallback, this, _1));
 
-    ROS_INFO("Starting depth stream.");
+    RCUTILS_LOG_INFO("Starting depth stream.");
     device_->startDepthStream();
   }
   else if (!need_depth && device_->isDepthStreamStarted())
   {
-    ROS_INFO("Stopping depth stream.");
+    RCUTILS_LOG_INFO("Stopping depth stream.");
     device_->stopDepthStream();
   }
 }
 
-void AstraDriver::newIRFrameCallback(sensor_msgs::ImagePtr image)
+void AstraDriver::newIRFrameCallback(sensor_msgs::msg::Image::SharedPtr image)
 {
   if ((++data_skip_ir_counter_)%data_skip_==0)
   {
@@ -629,7 +643,7 @@ void AstraDriver::newIRFrameCallback(sensor_msgs::ImagePtr image)
   }
 }
 
-void AstraDriver::newColorFrameCallback(sensor_msgs::ImagePtr image)
+void AstraDriver::newColorFrameCallback(sensor_msgs::msg::Image::SharedPtr image)
 {
   if ((++data_skip_color_counter_)%data_skip_==0)
   {
@@ -645,7 +659,7 @@ void AstraDriver::newColorFrameCallback(sensor_msgs::ImagePtr image)
   }
 }
 
-void AstraDriver::newDepthFrameCallback(sensor_msgs::ImagePtr image)
+void AstraDriver::newDepthFrameCallback(sensor_msgs::msg::Image::SharedPtr image)
 {
   if ((++data_skip_depth_counter_)%data_skip_==0)
   {
@@ -690,7 +704,7 @@ void AstraDriver::newDepthFrameCallback(sensor_msgs::ImagePtr image)
 
       if (depth_subscribers_ )
       {
-        sensor_msgs::ImageConstPtr floating_point_image = rawToFloatingPointConversion(image);
+        sensor_msgs::msg::Image::ConstPtr floating_point_image = rawToFloatingPointConversion(image);
         pub_depth_.publish(floating_point_image, cam_info);
       }
 
@@ -703,9 +717,9 @@ void AstraDriver::newDepthFrameCallback(sensor_msgs::ImagePtr image)
   }
 }
 
-sensor_msgs::CameraInfo AstraDriver::convertAstraCameraInfo(OBCameraParams p, ros::Time time) const
+sensor_msgs::msg::CameraInfo::SharedPtr AstraDriver::convertAstraCameraInfo(OBCameraParams p,  builtin_interfaces::msg::Time time) const
 {
-  sensor_msgs::CameraInfo info;
+  sensor_msgs::msg::CameraInfo::SharedPtr info(new sensor_msgs::msg::CameraInfo());
   // info.width = width;
   // info.height = height;
   info.distortion_model = sensor_msgs::distortion_models::PLUMB_BOB;
@@ -745,9 +759,9 @@ sensor_msgs::CameraInfo AstraDriver::convertAstraCameraInfo(OBCameraParams p, ro
 }
 
 // Methods to get calibration parameters for the various cameras
-sensor_msgs::CameraInfoPtr AstraDriver::getDefaultCameraInfo(int width, int height, double f) const
+sensor_msgs::msg::CameraInfo::SharedPtr AstraDriver::getDefaultCameraInfo(int width, int height, double f) const
 {
-  sensor_msgs::CameraInfoPtr info = boost::make_shared<sensor_msgs::CameraInfo>();
+  sensor_msgs::msg::CameraInfo::SharedPtr info = boost::make_shared<sensor_msgs::CameraInfo>();
 
   info->width  = width;
   info->height = height;
@@ -780,9 +794,9 @@ sensor_msgs::CameraInfoPtr AstraDriver::getDefaultCameraInfo(int width, int heig
 }
 
 /// @todo Use binning/ROI properly in publishing camera infos
-sensor_msgs::CameraInfoPtr AstraDriver::getColorCameraInfo(int width, int height, ros::Time time) const
+sensor_msgs::msg::CameraInfo::SharedPtr AstraDriver::getColorCameraInfo(int width, int height,  builtin_interfaces::msg::Time time) const
 {
-  sensor_msgs::CameraInfoPtr info;
+  sensor_msgs::msg::CameraInfo::SharedPtr info;
 
   if (color_info_manager_->isCalibrated())
   {
@@ -790,7 +804,7 @@ sensor_msgs::CameraInfoPtr AstraDriver::getColorCameraInfo(int width, int height
     if ( info->width != width )
     {
       // Use uncalibrated values
-      ROS_WARN_ONCE("Image resolution doesn't match calibration of the RGB camera. Using default parameters.");
+      RCUTILS_LOG_WARN_ONCE("Image resolution doesn't match calibration of the RGB camera. Using default parameters.");
       info = getDefaultCameraInfo(width, height, device_->getColorFocalLength(height));
     }
   }
@@ -846,9 +860,9 @@ sensor_msgs::CameraInfoPtr AstraDriver::getColorCameraInfo(int width, int height
 }
 
 
-sensor_msgs::CameraInfoPtr AstraDriver::getIRCameraInfo(int width, int height, ros::Time time) const
+sensor_msgs::msg::CameraInfo::SharedPtr AstraDriver::getIRCameraInfo(int width, int height, builtin_interfaces::msg::Time time) const
 {
-  sensor_msgs::CameraInfoPtr info;
+  sensor_msgs::msg::CameraInfo::SharedPtr info;
 
   if (ir_info_manager_->isCalibrated())
   {
@@ -856,7 +870,7 @@ sensor_msgs::CameraInfoPtr AstraDriver::getIRCameraInfo(int width, int height, r
     if ( info->width != width )
     {
       // Use uncalibrated values
-      ROS_WARN_ONCE("Image resolution doesn't match calibration of the IR camera. Using default parameters.");
+      // RCUTILS_LOG_WARN_ONCE("Image resolution doesn't match calibration of the IR camera. Using default parameters.");
       info = getDefaultCameraInfo(width, height, device_->getIRFocalLength(height));
     }
   }
@@ -868,41 +882,41 @@ sensor_msgs::CameraInfoPtr AstraDriver::getIRCameraInfo(int width, int height, r
     if (device_->isCameraParamsValid())
     {
       OBCameraParams p = device_->getCameraParams();
-      info->D.resize(5, 0.0);
+      info->d.resize(5, 0.0);
       // info->D[0] = p.l_k[0];
       // info->D[1] = p.l_k[1];
       // info->D[2] = p.l_k[3];
       // info->D[3] = p.l_k[4];
       // info->D[4] = p.l_k[2];
 
-      info->K.assign(0.0);
-      info->K[0] = p.l_intr_p[0];
-      info->K[2] = p.l_intr_p[2];
-      info->K[4] = p.l_intr_p[1];
-      info->K[5] = p.l_intr_p[3];
-      info->K[8] = 1.0;
+      info->k.assign(0.0);
+      info->k[0] = p.l_intr_p[0];
+      info->k[2] = p.l_intr_p[2];
+      info->k[4] = p.l_intr_p[1];
+      info->k[5] = p.l_intr_p[3];
+      info->k[8] = 1.0;
 
-      info->R.assign(0.0);
-      info->R[0] = 1;
-      info->R[4] = 1;
-      info->R[8] = 1;
+      info->r.assign(0.0);
+      info->r[0] = 1;
+      info->r[4] = 1;
+      info->r[8] = 1;
 
-      info->P.assign(0.0);
-      info->P[0] = info->K[0];
-      info->P[2] = info->K[2];
-      info->P[5] = info->K[4];
-      info->P[6] = info->K[5];
-      info->P[10] = 1.0;
+      info->p.assign(0.0);
+      info->p[0] = info->k[0];
+      info->p[2] = info->k[2];
+      info->p[5] = info->k[4];
+      info->p[6] = info->k[5];
+      info->p[10] = 1.0;
 /* 02122020 Scale IR Params */
   double scaling = (double)width / 640;
-  info->K[0] *= scaling; // fx
-  info->K[2] *= scaling; // cx
-  info->K[4] *= scaling; // fy
-  info->K[5] *= scaling; // cy
-  info->P[0] *= scaling; // fx
-  info->P[2] *= scaling; // cx
-  info->P[5] *= scaling; // fy
-  info->P[6] *= scaling; // cy
+  info->k[0] *= scaling; // fx
+  info->k[2] *= scaling; // cx
+  info->k[4] *= scaling; // fy
+  info->k[5] *= scaling; // cy
+  info->p[0] *= scaling; // fx
+  info->p[2] *= scaling; // cx
+  info->p[5] *= scaling; // fy
+  info->p[6] *= scaling; // cy
 /* 02122020 end */	    
 	 
     }
@@ -915,28 +929,28 @@ sensor_msgs::CameraInfoPtr AstraDriver::getIRCameraInfo(int width, int height, r
   return info;
 }
 
-sensor_msgs::CameraInfoPtr AstraDriver::getDepthCameraInfo(int width, int height, ros::Time time) const
+sensor_msgs::msg::CameraInfo::SharedPtr AstraDriver::getDepthCameraInfo(int width, int height,  builtin_interfaces::msg::Time time) const
 {
   // The depth image has essentially the same intrinsics as the IR image, BUT the
   // principal point is offset by half the size of the hardware correlation window
   // (probably 9x9 or 9x7 in 640x480 mode). See http://www.ros.org/wiki/kinect_calibration/technical
   double scaling = (double)width / 640;
-  sensor_msgs::CameraInfoPtr info = getIRCameraInfo(width, height, time);
-  info->K[2] -= depth_ir_offset_x_ * scaling;
-  info->K[5] -= depth_ir_offset_y_ * scaling;
-  info->P[2] -= depth_ir_offset_x_ * scaling;
-  info->P[6] -= depth_ir_offset_y_ * scaling;
+  sensor_msgs::msg::CameraInfo::SharedPtr info = getIRCameraInfo(width, height, time);
+  info->k[2] -= depth_ir_offset_x_ * scaling;
+  info->k[5] -= depth_ir_offset_y_ * scaling;
+  info->p[2] -= depth_ir_offset_x_ * scaling;
+  info->p[6] -= depth_ir_offset_y_ * scaling;
 
   /// @todo Could put this in projector frame so as to encode the baseline in P[3]
   return info;
 }
 
-sensor_msgs::CameraInfoPtr AstraDriver::getProjectorCameraInfo(int width, int height, ros::Time time) const
+sensor_msgs::msg::CameraInfo::SharedPtr AstraDriver::getProjectorCameraInfo(int width, int height,  builtin_interfaces::msg::Time time) const
 {
   // The projector info is simply the depth info with the baseline encoded in the P matrix.
   // It's only purpose is to be the "right" camera info to the depth camera's "left" for
   // processing disparity images.
-  sensor_msgs::CameraInfoPtr info = getDepthCameraInfo(width, height, time);
+  sensor_msgs::msg::CameraInfo::SharedPtr info = getDepthCameraInfo(width, height, time);
   // Tx = -baseline * fx
   info->P[3] = -device_->getBaseline() * info->P[0];
   return info;
@@ -944,23 +958,23 @@ sensor_msgs::CameraInfoPtr AstraDriver::getProjectorCameraInfo(int width, int he
 
 void AstraDriver::readConfigFromParameterServer()
 {
-  if (!pnh_.getParam("device_id", device_id_))
-  {
-    ROS_WARN ("~device_id is not set! Using first device.");
-    device_id_ = "#1";
-  }
+  // if (!pnh_.getParam("device_id", device_id_))
+  // {
+  //   RCUTILS_LOG_WARN ("~device_id is not set! Using first device.");
+  //   device_id_ = "#1";
+  // }
 
-  // Camera TF frames
-  pnh_.param("ir_frame_id", ir_frame_id_, std::string("/openni_ir_optical_frame"));
-  pnh_.param("rgb_frame_id", color_frame_id_, std::string("/openni_rgb_optical_frame"));
-  pnh_.param("depth_frame_id", depth_frame_id_, std::string("/openni_depth_optical_frame"));
+  // // Camera TF frames
+  // pnh_.param("ir_frame_id", ir_frame_id_, std::string("/openni_ir_optical_frame"));
+  // pnh_.param("rgb_frame_id", color_frame_id_, std::string("/openni_rgb_optical_frame"));
+  // pnh_.param("depth_frame_id", depth_frame_id_, std::string("/openni_depth_optical_frame"));
 
-  ROS_DEBUG("ir_frame_id = '%s' ", ir_frame_id_.c_str());
-  ROS_DEBUG("rgb_frame_id = '%s' ", color_frame_id_.c_str());
-  ROS_DEBUG("depth_frame_id = '%s' ", depth_frame_id_.c_str());
+  // RCUTILS_LOG_DEBUG("ir_frame_id = '%s' ", ir_frame_id_.c_str());
+  // RCUTILS_LOG_DEBUG("rgb_frame_id = '%s' ", color_frame_id_.c_str());
+  // RCUTILS_LOG_DEBUG("depth_frame_id = '%s' ", depth_frame_id_.c_str());
 
-  pnh_.param("rgb_camera_info_url", color_info_url_, std::string());
-  pnh_.param("depth_camera_info_url", ir_info_url_, std::string());
+  // pnh_.param("rgb_camera_info_url", color_info_url_, std::string());
+  // pnh_.param("depth_camera_info_url", ir_info_url_, std::string());
 
 }
 
@@ -976,7 +990,7 @@ std::string AstraDriver::resolveDeviceURI(const std::string& device_id)
    for (size_t i = 0; i < available_device_URIs->size(); ++i)
    {
        std::string s = (*available_device_URIs)[i];
-  	ROS_WARN("------------id %d, available_device_uri is %s-----------", i, s.c_str());
+  	RCUTILS_LOG_WARN("------------id %d, available_device_uri is %s-----------", i, s.c_str());
    }
    #endif
   //end
@@ -1061,7 +1075,7 @@ std::string AstraDriver::resolveDeviceURI(const std::string& device_id)
          	std::set<std::string>::iterator iter;
         	if((iter = alreadyOpen.find(*it)) == alreadyOpen.end())
         	{
-              		// ROS_WARN("------------seraial num it is  %s, device_id is %s -----------", (*it).c_str(), device_id_.c_str());
+              		// RCUTILS_LOG_WARN("------------seraial num it is  %s, device_id is %s -----------", (*it).c_str(), device_id_.c_str());
         		std::string serial = device_manager_->getSerial(*it);
         	 	if (serial.size() > 0 && device_id == serial)
         		{
@@ -1073,7 +1087,7 @@ std::string AstraDriver::resolveDeviceURI(const std::string& device_id)
 	#endif
       	catch (const AstraException& exception)
       	{
-        	ROS_WARN("Could not query serial number of device \"%s\":", exception.what());
+        	RCUTILS_LOG_WARN("Could not query serial number of device \"%s\":", exception.what());
       	}
     }
 
@@ -1123,13 +1137,13 @@ void AstraDriver::initDevice()
     {
       if (!device_)
       {
-        ROS_INFO("No matching device found.... waiting for devices. Reason: %s", exception.what());
+        RCUTILS_LOG_INFO("No matching device found.... waiting for devices. Reason: %s", exception.what());
         boost::this_thread::sleep(boost::posix_time::seconds(3));
         continue;
       }
       else
       {
-        ROS_ERROR("Could not retrieve device. Reason: %s", exception.what());
+        RCUTILS_LOG_ERROR("Could not retrieve device. Reason: %s", exception.what());
         exit(-1);
       }
     }
@@ -1137,7 +1151,7 @@ void AstraDriver::initDevice()
 
   while (ros::ok() && !device_->isValid())
   {
-    ROS_DEBUG("Waiting for device initialization..");
+    RCUTILS_LOG_DEBUG("Waiting for device initialization..");
     boost::this_thread::sleep(boost::posix_time::milliseconds(100));
   }
 
@@ -1308,11 +1322,11 @@ int AstraDriver::lookupVideoModeFromDynConfig(int mode_nr, AstraVideoMode& video
   return ret;
 }
 
-sensor_msgs::ImageConstPtr AstraDriver::rawToFloatingPointConversion(sensor_msgs::ImageConstPtr raw_image)
+ sensor_msgs::msg::Image::ConstSharedPtr AstraDriver::rawToFloatingPointConversion(sensor_msgs::msg::Image::ConstSharedPtr raw_image)
 {
   static const float bad_point = std::numeric_limits<float>::quiet_NaN ();
 
-  sensor_msgs::ImagePtr new_image = boost::make_shared<sensor_msgs::Image>();
+  sensor_msgs::msg::Image::SharedPtr new_image = boost::make_shared<sensor_msgs::msg::Image>();
 
   new_image->header = raw_image->header;
   new_image->width = raw_image->width;

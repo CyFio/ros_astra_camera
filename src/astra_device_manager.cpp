@@ -37,7 +37,8 @@
 
 #include <boost/make_shared.hpp>
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
+#include <rcutils/logging_macros.h>
 
 #include <set>
 #include <string>
@@ -91,7 +92,7 @@ public:
 
   virtual void onDeviceStateChanged(const openni::DeviceInfo* pInfo, openni::DeviceState state)
   {
-    ROS_INFO("Device \"%s\" error state changed to %d\n", pInfo->getUri(), state);
+    RCUTILS_LOG_INFO("Device \"%s\" error state changed to %d\n", pInfo->getUri(), state);
 
     switch (state)
     {
@@ -113,7 +114,7 @@ public:
 
     const AstraDeviceInfo device_info_wrapped = astra_convert(pInfo);
 
-    ROS_INFO("Device \"%s\" found.", pInfo->getUri());
+    RCUTILS_LOG_INFO("Device \"%s\" found.", pInfo->getUri());
 
     // make sure it does not exist in set before inserting
     device_set_.erase(device_info_wrapped);
@@ -125,7 +126,7 @@ public:
   {
     boost::mutex::scoped_lock l(device_mutex_);
 
-    ROS_WARN("Device \"%s\" disconnected\n", pInfo->getUri());
+    RCUTILS_LOG_WARN("Device \"%s\" disconnected\n", pInfo->getUri());
 
     const AstraDeviceInfo device_info_wrapped = astra_convert(pInfo);
     device_set_.erase(device_info_wrapped);
