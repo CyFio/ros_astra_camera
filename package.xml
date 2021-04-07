@@ -8,8 +8,16 @@
   <maintainer email="nan@orbbec3d.com">Orbbec3D</maintainer>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>rosidl_cmake</buildtool_depend>
+  <build_depend>rosidl_default_generators</build_depend>
+  <build_depend>rclcpp_components</build_depend>
+  <build_depend>rcutils</build_depend>
+  
+  <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <exec_depend>rcutils</exec_depend>
 
+  <depend>ament_index_cpp</depend>
   <depend>camera_info_manager</depend>
   <depend>libudev-dev</depend>
   <depend>libusb-1.0-dev</depend>
@@ -17,12 +25,12 @@
   <depend>rclcpp</depend>
   <depend>image_transport</depend>
   <depend>libuvc</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
 
   <!-- generate msg/srv -->
-  <build_depend>rosidl_default_generators</build_depend>
-  <exec_depend>rosidl_default_runtime</exec_depend>
+  <build_depend>builtin_interfaces</build_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
-
 
   <export>
     <build_type>ament_cmake</build_type>

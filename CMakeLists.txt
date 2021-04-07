@@ -7,22 +7,32 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra)
+  add_compile_options(-Wall -Wextra -Wpedantic)
   add_compile_options(-Wno-deprecated)
 endif()
 
 # find packages
-# find_package(catkin REQUIRED camera_info_manager dynamic_reconfigure image_transport nodelet sensor_msgs roscpp message_generation)
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(camera_info_manager REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(rmw_implementation_cmake REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system thread)
 find_package(rosidl_default_generators REQUIRED)  # use to generate custom srv and msg
-find_package(rosidl_cmake REQUIRED)
 find_package(libuvc REQUIRED)
-set(ros2_dependencies "rclcpp" "sensor_msgs" "builtin_interfaces") # store a var to tell ament
+find_package(rcutils REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+
+include_directories(include
+  ${Boost_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/openni2
+  ${libuvc_INCLUDE_DIRS}
+)
+
+set(ros2_dependencies "ament_index_cpp" "rclcpp" "sensor_msgs" "builtin_interfaces" "std_srvs" "std_msgs" "rcutils") # store a var to tell ament
 
 # machine config
 #MACHINE = $(shell uname -m)
@@ -57,30 +67,31 @@ message(STATUS "libuvc ${libuvc_VERSION_MAJOR}.${libuvc_VERSION_MINOR}.${libuvc_
 
 # custom services
 set(ros_astra_SRV
-  srv/GetSerial.srv
-  srv/GetDeviceType.srv
-  srv/GetIRGain.srv
-  srv/GetCameraInfo.srv
-  srv/GetUVCExposure.srv
-  srv/GetIRExposure.srv
-  srv/GetUVCGain.srv
-  srv/GetUVCWhiteBalance.srv
-  srv/SetUVCWhiteBalance.srv
-  srv/SetUVCGain.srv
-  srv/SetIRExposure.srv
-  srv/SetIRGain.srv
-  srv/SetIRFlood.srv
-  srv/SetLaser.srv
-  srv/SetLDP.srv
-  srv/SetUVCExposure.srv
-  srv/ResetIRGain.srv
-  srv/ResetIRExposure.srv
-  srv/SwitchIRCamera.srv
+  "srv/GetSerial.srv"
+  "srv/GetDeviceType.srv"
+  "srv/GetIRGain.srv"
+  "srv/GetCameraInfo.srv"
+  "srv/GetUVCExposure.srv"
+  "srv/GetIRExposure.srv"
+  "srv/GetUVCGain.srv"
+  "srv/GetUVCWhiteBalance.srv"
+  "srv/SetUVCWhiteBalance.srv"
+  "srv/SetUVCGain.srv"
+  "srv/SetIRExposure.srv"
+  "srv/SetIRGain.srv"
+  "srv/SetIRFlood.srv"
+  "srv/SetLaser.srv"
+  "srv/SetLDP.srv"
+  "srv/SetUVCExposure.srv"
+  "srv/ResetIRGain.srv"
+  "srv/ResetIRExposure.srv"
+  "srv/SwitchIRCamera.srv"
 )
 
 # ros2 custom service & messages
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${ros_astra_SRV}
+  DEPENDENCIES "std_msgs" "std_srvs" "sensor_msgs"
 )
 
 add_definitions(-Dlibuvc_VERSION_MAJOR=${libuvc_VERSION_MAJOR})
@@ -93,14 +104,6 @@ set(ORBBEC_OPENNI2_REDIST  "${CMAKE_CURRENT_SOURCE_DIR}/include/openni2_redist/$
 #                  )
 
 #MESSAGE(STATUS "ORRBEC : ${ORBBEC_OPENNI2_REDIST}")
-
-include_directories(include
-                    # ${catkin_INCLUDE_DIRS}
-                    ${Boost_INCLUDE_DIRS}
-                    ${CMAKE_CURRENT_SOURCE_DIR}/include/openni2
-                    ${libuvc_INCLUDE_DIRS}
-                    )
-
                     
 # target astra_wapper
 add_library(astra_wrapper
@@ -114,7 +117,6 @@ add_library(astra_wrapper
    src/astra_video_mode.cpp
    src/astra_device_type.cpp
 )
-
 ament_target_dependencies(astra_wrapper  ${ros2_dependencies})
 target_link_libraries(astra_wrapper -lOpenNI2  -L${ORBBEC_OPENNI2_REDIST}
   ${Boost_LIBRARIES} )
@@ -123,8 +125,8 @@ rosidl_target_interfaces(astra_wrapper
 
 # target astra_driver_lib
 add_library(astra_driver_lib
-                src/astra_driver.cpp
-                src/astra_device_type.cpp
+  src/astra_driver.cpp
+  src/astra_device_type.cpp
 )
 ament_target_dependencies(astra_driver_lib  ${ros2_dependencies})
 target_link_libraries(astra_driver_lib astra_wrapper ${Boost_LIBRARIES})
@@ -140,16 +142,15 @@ rosidl_target_interfaces(astra_driver_lib
 
 # target astra camera node
 add_executable(astra_camera_node
-   ros/astra_camera_node.cpp
+  ros/astra_camera_node.cpp
 )
 ament_target_dependencies(astra_camera_node ${ros2_dependencies})
 target_link_libraries(astra_camera_node astra_driver_lib ${Boost_LIBRARIES})
-rosidl_target_interfaces(astra_camera_node
-  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+rosidl_target_interfaces(astra_camera_node ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
 # target list devices
 add_executable(astra_list_devices
-   src/list_devices.cpp
+  src/list_devices.cpp
 )
 target_link_libraries(astra_list_devices astra_wrapper)
 
@@ -169,8 +170,7 @@ add_executable(camera_node
 
 ament_target_dependencies(camera_node ${ros2_dependencies})
 target_link_libraries(camera_node ${libuvc_LIBRARIES} ${Boost_LIBRARIES})
-rosidl_target_interfaces(camera_node
-  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+rosidl_target_interfaces(camera_node ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
 # target uvc camera nodelet
 # add_library(libuvc_camera_nodelet src/libuvc_camera/nodelet.cpp
